@@ -83,11 +83,9 @@ func final1(self: var Wyhash, inputLB: openArray[byte], startPos: int) =
   assert inputLB.len - startPos <= 48
   let input = inputLB[startPos..^1]
 
-  var i = 0
-  while i + 16 < input.len:
+  for i in countup(0, input.high - 16, 16):
     self.state[0] = mix(input.read(8, i) xor secret[1],
                         input.read(8, i + 8) xor self.state[0])
-    i += 16
 
   self.a = inputLB.read(8, inputLB.len - 16)
   self.b = inputLB.read(8, inputLB.len - 8)
