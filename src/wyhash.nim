@@ -50,9 +50,9 @@ type
     bufLen: Usize
 
 func mum(a: var uint64, b: var uint64) {.inline.} =
-  let x = @as(u128, a) *% b
-  a = @as(uint64, @truncate(x))
-  b = @as(uint64, @truncate(x >> 64))
+  let x = a.uint128 *% b
+  a = @truncate(x).uint64
+  b = @truncate(x >> 64).uint64
 
 func mix(a: uint64, b: uint64): uint64 {.inline.} =
   var a = a
@@ -63,7 +63,7 @@ func mix(a: uint64, b: uint64): uint64 {.inline.} =
 func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
   assert bytes <= 8
   const T = std.meta.Int(.unsigned, 8 * bytes)
-  result = @as(uint64, std.mem.readIntLittle(T, data[0..<bytes]))
+  result = std.mem.readIntLittle(T, data[0..<bytes]).uint64
 
 func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
   for i in 0..2:
@@ -105,7 +105,7 @@ func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
     self.a = (read(4, input[0..^1]) << 32) | read(4, input[quarter..^1])
     self.b = (read(4, input[last..^1]) << 32) | read(4, input[last - quarter .. ^1])
   elif (input.len > 0):
-    self.a = (@as(uint64, input[0]) << 16) | (@as(uint64, input[input.len >> 1]) << 8) | input[input.len - 1]
+    self.a = (input[0].uint64 << 16) | (input[input.len >> 1].uint64 << 8) | input[input.len - 1]
     self.b = 0
   else:
     self.a = 0
