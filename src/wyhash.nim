@@ -62,15 +62,17 @@ func mix(a: uint64, b: uint64): uint64 =
   mum(a, b)
   result = a xor b
 
-func read(data: openArray[byte], numBytes: static int, start: int): uint64 =
-  assert numBytes <= 8
+func read4(data: openArray[byte], start: int): uint64 =
   result = 0
-  copyMem(result.addr, data[start].addr, numBytes)
+  copyMem(result.addr, data[start].addr, 4)
+
+func read8(data: openArray[byte], start: int): uint64 {.noinit.} =
+  copyMem(result.addr, data[start].addr, 8)
 
 func round(self: var Wyhash, input: openArray[byte]) =
   for i in 0..2:
-    let a = input.read(8, 8 * 2 * i)
-    let b = input.read(8, 8 * (2 * i + 1))
+    let a = input.read8(8 * 2 * i)
+    let b = input.read8(8 * (2 * i + 1))
     self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
 
 func final0(self: var Wyhash) =
@@ -84,11 +86,11 @@ func final1(self: var Wyhash, inputLB: openArray[byte], startPos: int) =
   let input = inputLB[startPos..^1]
 
   for i in countup(0, input.high - 16, 16):
-    self.state[0] = mix(input.read(8, i) xor secret[1],
-                        input.read(8, i + 8) xor self.state[0])
+    self.state[0] = mix(input.read8(i) xor secret[1],
+                        input.read8(i + 8) xor self.state[0])
 
-  self.a = inputLB.read(8, inputLB.len - 16)
-  self.b = inputLB.read(8, inputLB.len - 8)
+  self.a = inputLB.read8(inputLB.len - 16)
+  self.b = inputLB.read8(inputLB.len - 8)
 
 func final2(self: var Wyhash): uint64 =
   self.a = self.a xor secret[1]
@@ -101,8 +103,8 @@ func smallKey(self: var Wyhash, input: openArray[byte]) =
   if input.len >= 4:
     let last = input.len - 4
     let quarter = (input.len shr 3) shl 2
-    self.a = (input.read(4, 0) shl 32) or input.read(4, quarter)
-    self.b = (input.read(4, last) shl 32) or input.read(4, last - quarter)
+    self.a = (input.read4(0) shl 32) or input.read4(quarter)
+    self.b = (input.read4(last) shl 32) or input.read4(last - quarter)
   elif input.len > 0:
     self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
     self.b = 0
