@@ -137,6 +137,25 @@ func wyhash*(seed: uint64, input: openArray[byte]): uint64 =
   self.totalLen = input.len.uint64
   result = self.final2()
 
+func smhasherWyhash: uint32 =
+  ## Returns the SMHasher verification code.
+  ##
+  ## Hashes keys of the form [0], [0, 1], [0, 1, 2]... up to N=255, using
+  ## 256-N as seed.
+  ##
+  ## The verification code is the first 4 bytes of the hash, interpreted as
+  ## little endian.
+  const hashSize = 8 # Bytes.
+  var buf {.noinit.}: array[256, byte]
+  var bufAll {.noinit.}: array[256 * hashSize, byte]
+
+  for i in 0..255:
+    buf[i] = i.byte
+    let h = wyhash((256 - i).uint64, toOpenArray(buf, 0, i - 1))
+    copyMem(bufAll[i * hashSize].addr, h.addr, 8)
+
+  result = wyhash(0, bufAll).uint32
+
 when isMainModule:
   import std/unittest
 
@@ -161,11 +180,14 @@ when isMainModule:
     for e in vectors:
       check wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
 
+  test "smhasher":
+    check smhasherWyhash() == 0xbd5e840c'u32
+
   when false:
     static:
       # test vectors at compile time
       for e in vectors:
         doAssert wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
 
-    test "smhasher":
-      check smhasherWyhash() == 0xbd5e840c
+      # smhasher at compile time
+      doAssert smhasherWyhash() == 0xbd5e840c'u32
