@@ -80,9 +80,8 @@ func final0(self: var Wyhash) =
   self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
 
 func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) =
-  ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
-  ## function will be used instead). We use an index into a slice to for
-  ## compile-time processing as opposed to if we used pointers.
+  ## `inputLB` must be at least 16-bytes long (for shorter keys, the `smallKey`
+  ## function is used instead of this one).
   assert inputLB.len >= 16
   assert inputLB.len - startPos.int <= 48
   let input = inputLB[startPos..^1]
