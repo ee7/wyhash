@@ -63,11 +63,23 @@ func mix(a: uint64, b: uint64): uint64 =
   result = a xor b
 
 func read4(data: openArray[byte], start: int): uint64 =
-  result = 0
-  copyMem(result.addr, data[start].addr, 4)
+  when defined(copyMem):
+    result = 0
+    copyMem(result.addr, data[start].addr, 4)
+  else:
+    var j = 4
+    while j > 0:
+      dec j
+      result = (result shl 8) or data[start+j].uint32
 
 func read8(data: openArray[byte], start: int): uint64 {.noinit.} =
-  copyMem(result.addr, data[start].addr, 8)
+  when defined(copyMem):
+    copyMem(result.addr, data[start].addr, 8)
+  else:
+    var j = 8
+    while j > 0:
+      dec j
+      result = (result shl 8) or data[start+j].uint64
 
 func round(self: var Wyhash, input: openArray[byte]) =
   var a = input.read8(0)
@@ -132,6 +144,9 @@ func wyhash*(input: openArray[byte], seed: uint64): uint64 =
   ## output quality [2].
   ##
   ## Uses a fast path for `input`s up to (and including) 16 bytes long.
+  ##
+  ## Supports use at run time, compile time, with the JavaScript backend, and
+  ## with both little-endian and big-endian machines.
   ##
   ## [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
   ## [2] https://github.com/rurban/smhasher
