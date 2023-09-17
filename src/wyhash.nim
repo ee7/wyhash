@@ -45,14 +45,11 @@ const secret = [
 ]
 
 type
-  Usize = uint64
-
-type
   Wyhash* = object
     a: uint64
     b: uint64
     state: array[3, uint64]
-    totalLen: Usize
+    totalLen: uint64
 
 func mum(a: var uint64, b: var uint64) =
   let x = mul128(a, b)
@@ -65,7 +62,7 @@ func mix(a: uint64, b: uint64): uint64 =
   mum(a, b)
   result = a xor b
 
-func read(data: openArray[uint8], bytes: static Usize, start: int): uint64 =
+func read(data: openArray[uint8], bytes: static int, start: int): uint64 =
   assert bytes <= 8
   result = 0
   copyMem(result.addr, data[start].addr, bytes)
@@ -79,17 +76,17 @@ func round(self: var Wyhash, input: openArray[uint8]) =
 func final0(self: var Wyhash) =
   self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
 
-func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) =
+func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: int) =
   ## `inputLB` must be at least 16-bytes long (for shorter keys, the `smallKey`
   ## function is used instead of this one).
   assert inputLB.len >= 16
-  assert inputLB.len - startPos.int <= 48
+  assert inputLB.len - startPos <= 48
   let input = inputLB[startPos..^1]
 
-  var i: Usize = 0
-  while i + 16 < input.len.Usize:
-    self.state[0] = mix(input.read(8, i.int) xor secret[1],
-                        input.read(8, i.int + 8) xor self.state[0])
+  var i = 0
+  while i + 16 < input.len:
+    self.state[0] = mix(input.read(8, i) xor secret[1],
+                        input.read(8, i + 8) xor self.state[0])
     i += 16
 
   self.a = inputLB.read(8, inputLB.len - 16)
@@ -129,15 +126,15 @@ func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
   if input.len <= 16:
     self.smallKey(input)
   else:
-    var i: Usize = 0
+    var i = 0
     if input.len >= 48:
-      while i + 48 < input.len.Usize:
-        self.round toOpenArray(input, i.int, input.high)
+      while i + 48 < input.len:
+        self.round toOpenArray(input, i, input.high)
         i += 48
       self.final0()
     self.final1(input, i)
 
-  self.totalLen = input.len.Usize
+  self.totalLen = input.len.uint64
   result = self.final2()
 
 when isMainModule:
