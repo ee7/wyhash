@@ -35,10 +35,9 @@ func smhasherWyhash: uint32 =
   ## Returns the SMHasher verification code.
   ##
   ## Hashes keys of the form [0], [0, 1], [0, 1, 2]... up to N=255, using
-  ## 256-N as seed.
+  ## 256-N as the corresponding seed, to set values in `bufAll`.
   ##
-  ## The verification code is the first 4 bytes of the hash, interpreted as
-  ## little endian.
+  ## The verification code is the hash of `bufAll`, truncated to a uint32.
   const hashSize = 8 # Bytes.
   var buf {.noinit.}: array[256, byte]
   var bufAll {.noinit.}: array[256 * hashSize, byte]
@@ -51,8 +50,13 @@ func smhasherWyhash: uint32 =
   result = wyhash(0, bufAll).uint32
 
 proc main =
+  # The below test vectors are from running the upstream `test_vector.cpp` [1].
+  # Note that `etalons_v` is unused in that file.
+  # The Zig implementation checks these vectors towards the bottom of wyhash.zig [2].
+  #
+  # [1] https://github.com/wangyi-fudan/wyhash/blob/77e50f267fbc7b8e2d09f2d455219adb70ad4749/test_vector.cpp
+  # [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig#L209-L217
   test "test vectors":
-    # Run https://github.com/wangyi-fudan/wyhash/blob/77e50f267fbc7b8e2d09f2d455219adb70ad4749/test_vector.cpp directly.
     const vectors = [
       (seed: 0'u64, expected: 0x409638ee2bde459'u64, input: ""),
       (seed: 1'u64, expected: 0xa8412d091b5fe0a9'u64, input: "a"),
