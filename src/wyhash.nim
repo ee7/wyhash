@@ -87,7 +87,7 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) =
   let input = inputLB[startPos..^1]
 
   var i: Usize = 0
-  while (i + 16 < input.len.Usize):
+  while i + 16 < input.len.Usize:
     self.state[0] = mix(input.read(8, i.int) xor secret[1],
                         input.read(8, i.int + 8) xor self.state[0])
     i += 16
@@ -103,12 +103,12 @@ func final2(self: var Wyhash): uint64 =
 
 func smallKey(self: var Wyhash, input: openArray[uint8]) =
   assert input.len <= 16
-  if (input.len >= 4):
+  if input.len >= 4:
     let last = input.len - 4
     let quarter = (input.len shr 3) shl 2
     self.a = (input.read(4, 0) shl 32) or input.read(4, quarter)
     self.b = (input.read(4, last) shl 32) or input.read(4, last - quarter)
-  elif (input.len > 0):
+  elif input.len > 0:
     self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
     self.b = 0
   else:
@@ -126,13 +126,13 @@ func init(T: typedesc[Wyhash], seed: uint64): T =
 func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
   var self = Wyhash.init(seed)
 
-  if (input.len <= 16):
+  if input.len <= 16:
     self.smallKey(input)
   else:
     var i: Usize = 0
-    if (input.len >= 48):
-      while (i + 48 < input.len.Usize):
-        self.round(toOpenArray(input, i.int, input.high))
+    if input.len >= 48:
+      while i + 48 < input.len.Usize:
+        self.round toOpenArray(input, i.int, input.high)
         i += 48
       self.final0()
     self.final1(input, i)
