@@ -49,6 +49,77 @@ type
     buf: array[48, uint8]
     bufLen: Usize
 
+func mum(a: var uint64, b: var uint64) {.inline.} =
+  let x = @as(u128, a) *% b
+  a = @as(uint64, @truncate(x))
+  b = @as(uint64, @truncate(x >> 64))
+
+func mix(a: uint64, b: uint64): uint64 {.inline.} =
+  var a = a
+  var b = b
+  mum(a, b)
+  result = a ^ b
+
+func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
+  assert bytes <= 8
+  const T = std.meta.Int(.unsigned, 8 * bytes)
+  result = @as(uint64, std.mem.readIntLittle(T, data[0..<bytes]))
+
+func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
+  for i in 0..2:
+    let a = read(8, input[8 * (2 * i) .. ^1])
+    let b = read(8, input[8 * (2 * i + 1) .. ^1])
+    self.state[i] = mix(a ^ secret[i + 1], b ^ self.state[i])
+
+func final0(self: var Wyhash) {.inline.} =
+  self.state[0] ^= self.state[1] ^ self.state[2]
+
+func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inline.} =
+  ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
+  ## function will be used instead). We use an index into a slice to for
+  ## compile-time processing as opposed to if we used pointers.
+  assert inputLB.len >= 16
+  assert inputLB.len - startPos <= 48
+  let input = inputLB[startPos..^1]
+
+  var i: Usize = 0
+  while (i + 16 < input.len):
+    self.state[0] = mix(read(8, input[i..^1]) ^ secret[1], read(8, input[i + 8 .. ^1]) ^ self.state[0])
+    i += 16
+
+  self.a = read(8, inputLB[inputLB.len - 16 .. ^1][0..<8])
+  self.b = read(8, inputLB[inputLB.len - 8 .. ^1][0..<8])
+
+func final2(self: var Wyhash): uint64 {.inline.} =
+  self.a ^= secret[1]
+  self.b ^= self.state[0]
+  mum(self.a, self.b)
+  result = mix(self.a ^ secret[0] ^ self.totalLen, self.b ^ secret[1])
+
+func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
+  assert input.len <= 16
+
+  if (input.len >= 4):
+    let last = input.len - 4
+    let quarter = (input.len >> 3) << 2
+    self.a = (read(4, input[0..^1]) << 32) | read(4, input[quarter..^1])
+    self.b = (read(4, input[last..^1]) << 32) | read(4, input[last - quarter .. ^1])
+  elif (input.len > 0):
+    self.a = (@as(uint64, input[0]) << 16) | (@as(uint64, input[input.len >> 1]) << 8) | input[input.len - 1]
+    self.b = 0
+  else:
+    self.a = 0
+    self.b = 0
+
+func shallowCopy(self: var Wyhash): Wyhash {.inline.} =
+  ## Copies the core wyhash state but not any internal buffers.
+  Wyhash(
+    a: self.a,
+    b: self.b,
+    state: self.state,
+    totalLen: self.totalLen,
+  )
+
 func init*(T: typedesc[Wyhash], seed: uint64): T =
   result = T(
     totalLen: 0,
@@ -58,6 +129,23 @@ func init*(T: typedesc[Wyhash], seed: uint64): T =
   result.state[0] = seed ^ mix(seed ^ secret[0], secret[1])
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
+
+func hash*(seed: uint64, input: openArray[uint8]): uint64 =
+  var self = Wyhash.init(seed)
+
+  if (input.len <= 16):
+    self.smallKey(input)
+  else:
+    var i: Usize = 0
+    if (input.len >= 48):
+      while (i + 48 < input.len):
+        self.round(input[i..^1][0..<48])
+        i += 48
+      self.final0()
+    self.final1(input, i)
+
+  self.totalLen = input.len
+  result = self.final2()
 
 func update*(self: var Wyhash, input: openArray[uint8]) =
   ## This is subtly different from other hash function update calls. Wyhash requires the last
@@ -110,94 +198,6 @@ func final*(self: var Wyhash): uint64 =
     newSelf.final1(input, offset)
 
   result = newSelf.final2()
-
-func shallowCopy(self: var Wyhash): Wyhash {.inline.} =
-  ## Copies the core wyhash state but not any internal buffers.
-  Wyhash(
-    a: self.a,
-    b: self.b,
-    state: self.state,
-    totalLen: self.totalLen,
-  )
-
-func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
-  assert input.len <= 16
-
-  if (input.len >= 4):
-    let last = input.len - 4
-    let quarter = (input.len >> 3) << 2
-    self.a = (read(4, input[0..^1]) << 32) | read(4, input[quarter..^1])
-    self.b = (read(4, input[last..^1]) << 32) | read(4, input[last - quarter .. ^1])
-  elif (input.len > 0):
-    self.a = (@as(uint64, input[0]) << 16) | (@as(uint64, input[input.len >> 1]) << 8) | input[input.len - 1]
-    self.b = 0
-  else:
-    self.a = 0
-    self.b = 0
-
-func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
-  for i in 0..2:
-    let a = read(8, input[8 * (2 * i) .. ^1])
-    let b = read(8, input[8 * (2 * i + 1) .. ^1])
-    self.state[i] = mix(a ^ secret[i + 1], b ^ self.state[i])
-
-func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
-  assert bytes <= 8
-  const T = std.meta.Int(.unsigned, 8 * bytes)
-  result = @as(uint64, std.mem.readIntLittle(T, data[0..<bytes]))
-
-func mum(a: var uint64, b: var uint64) {.inline.} =
-  let x = @as(u128, a) *% b
-  a = @as(uint64, @truncate(x))
-  b = @as(uint64, @truncate(x >> 64))
-
-func mix(a: uint64, b: uint64): uint64 {.inline.} =
-  var a = a
-  var b = b
-  mum(a, b)
-  result = a ^ b
-
-func final0(self: var Wyhash) {.inline.} =
-  self.state[0] ^= self.state[1] ^ self.state[2]
-
-func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inline.} =
-  ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
-  ## function will be used instead). We use an index into a slice to for
-  ## compile-time processing as opposed to if we used pointers.
-  assert inputLB.len >= 16
-  assert inputLB.len - startPos <= 48
-  let input = inputLB[startPos..^1]
-
-  var i: Usize = 0
-  while (i + 16 < input.len):
-    self.state[0] = mix(read(8, input[i..^1]) ^ secret[1], read(8, input[i + 8 .. ^1]) ^ self.state[0])
-    i += 16
-
-  self.a = read(8, inputLB[inputLB.len - 16 .. ^1][0..<8])
-  self.b = read(8, inputLB[inputLB.len - 8 .. ^1][0..<8])
-
-func final2(self: var Wyhash): uint64 {.inline.} =
-  self.a ^= secret[1]
-  self.b ^= self.state[0]
-  mum(self.a, self.b)
-  result = mix(self.a ^ secret[0] ^ self.totalLen, self.b ^ secret[1])
-
-func hash*(seed: uint64, input: openArray[uint8]): uint64 =
-  var self = Wyhash.init(seed)
-
-  if (input.len <= 16):
-    self.smallKey(input)
-  else:
-    var i: Usize = 0
-    if (input.len >= 48):
-      while (i + 48 < input.len):
-        self.round(input[i..^1][0..<48])
-        i += 48
-      self.final0()
-    self.final1(input, i)
-
-  self.totalLen = input.len
-  result = self.final2()
 
 when isMainModule:
   import std/unittest
