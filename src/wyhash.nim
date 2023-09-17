@@ -58,7 +58,7 @@ func mix(a: uint64, b: uint64): uint64 {.inline.} =
   var a = a
   var b = b
   mum(a, b)
-  result = a ^ b
+  result = a xor b
 
 func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
   assert bytes <= 8
@@ -69,10 +69,10 @@ func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
   for i in 0..2:
     let a = read(8, input[8 * (2 * i) .. ^1])
     let b = read(8, input[8 * (2 * i + 1) .. ^1])
-    self.state[i] = mix(a ^ secret[i + 1], b ^ self.state[i])
+    self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
 
 func final0(self: var Wyhash) {.inline.} =
-  self.state[0] ^= self.state[1] ^ self.state[2]
+  self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
 
 func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inline.} =
   ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
@@ -84,17 +84,17 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inli
 
   var i: Usize = 0
   while (i + 16 < input.len):
-    self.state[0] = mix(read(8, input[i..^1]) ^ secret[1], read(8, input[i + 8 .. ^1]) ^ self.state[0])
+    self.state[0] = mix(read(8, input[i..^1]) xor secret[1], read(8, input[i + 8 .. ^1]) xor self.state[0])
     i += 16
 
   self.a = read(8, inputLB[inputLB.len - 16 .. ^1][0..<8])
   self.b = read(8, inputLB[inputLB.len - 8 .. ^1][0..<8])
 
 func final2(self: var Wyhash): uint64 {.inline.} =
-  self.a ^= secret[1]
-  self.b ^= self.state[0]
+  self.a = self.a xor secret[1]
+  self.b = self.b xor self.state[0]
   mum(self.a, self.b)
-  result = mix(self.a ^ secret[0] ^ self.totalLen, self.b ^ secret[1])
+  result = mix(self.a xor secret[0] xor self.totalLen, self.b xor secret[1])
 
 func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   assert input.len <= 16
@@ -126,7 +126,7 @@ func init*(T: typedesc[Wyhash], seed: uint64): T =
     bufLen: 0,
   )
 
-  result.state[0] = seed ^ mix(seed ^ secret[0], secret[1])
+  result.state[0] = seed xor mix(seed xor secret[0], secret[1])
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
 
