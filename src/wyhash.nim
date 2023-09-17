@@ -165,3 +165,6 @@ func wyhash*(input: openArray[byte], seed: uint64): uint64 =
 
   self.totalLen = input.len.uint64
   result = self.final2()
+
+func wyhash*(input: openArray[char], seed: uint64): uint64 {.inline.} =
+  input.toOpenArrayByte(0, input.high).wyhash(seed)

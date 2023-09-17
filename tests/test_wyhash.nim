@@ -73,7 +73,7 @@ proc main =
   ]
 
   for (seed, expected, input) in vectors:
-    doAssert toOpenArrayByte(input, 0, input.high).wyhash(seed) == expected
+    doAssert input.wyhash(seed) == expected
 
   doAssert smhasherWyhash() == 0xbd5e840c'u32
 
