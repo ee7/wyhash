@@ -109,7 +109,9 @@ func smallKey(self: var Wyhash, input: openArray[byte]) =
     self.a = (input.read4(0) shl 32) or input.read4(quarter)
     self.b = (input.read4(last) shl 32) or input.read4(last - quarter)
   elif input.len > 0:
-    self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
+    self.a = (input[0].uint64 shl 16) or
+                 (input[input.len shr 1].uint64 shl 8) or
+                 input[input.len - 1]
     self.b = 0
   else:
     self.a = 0
