@@ -132,7 +132,7 @@ func init*(T: typedesc[Wyhash], seed: uint64): T =
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
 
-func hash*(seed: uint64, input: openArray[uint8]): uint64 =
+func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
   var self = Wyhash.init(seed)
 
   if (input.len <= 16):
@@ -223,16 +223,16 @@ when isMainModule:
 
   test "test vectors":
     for e in vectors:
-      check Wyhash.hash(e.seed, e.input) == e.expected
+      check wyhash(e.seed, e.input) == e.expected
 
   test "test vectors at compile time":
     static:
       for e in vectors:
-        check Wyhash.hash(e.seed, e.input) == e.expected
+        check wyhash(e.seed, e.input) == e.expected
 
   # test "smhasher":
   #   func do =
-  #     check verify.smhasher(Wyhash.hash) == 0xBD5E840C
+  #     check verify.smhasher(wyhash) == 0xBD5E840C
   #   do()
   #   static:
   #     do()
@@ -250,7 +250,7 @@ when isMainModule:
 
     for i in 0..16:
       let payload = input[0 ..< input.len - i]
-      let nonIterativeHash = Wyhash.hash(seed, payload)
+      let nonIterativeHash = wyhash(seed, payload)
 
       var wh = Wyhash.init(seed)
       wh.update(payload)
