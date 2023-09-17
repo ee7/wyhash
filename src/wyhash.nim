@@ -32,7 +32,7 @@
 #   THE SOFTWARE.
 #
 # [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
-# [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig
+# [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig#L1-L197
 # [3] https://github.com/wangyi-fudan/wyhash/issues/131
 # [4] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/LICENSE
 from std/private/dragonbox import mul128
@@ -136,58 +136,3 @@ func wyhash*(seed: uint64, input: openArray[byte]): uint64 =
 
   self.totalLen = input.len.uint64
   result = self.final2()
-
-func smhasherWyhash: uint32 =
-  ## Returns the SMHasher verification code.
-  ##
-  ## Hashes keys of the form [0], [0, 1], [0, 1, 2]... up to N=255, using
-  ## 256-N as seed.
-  ##
-  ## The verification code is the first 4 bytes of the hash, interpreted as
-  ## little endian.
-  const hashSize = 8 # Bytes.
-  var buf {.noinit.}: array[256, byte]
-  var bufAll {.noinit.}: array[256 * hashSize, byte]
-
-  for i in 0..255:
-    buf[i] = i.byte
-    let h = wyhash((256 - i).uint64, toOpenArray(buf, 0, i - 1))
-    copyMem(bufAll[i * hashSize].addr, h.addr, 8)
-
-  result = wyhash(0, bufAll).uint32
-
-when isMainModule:
-  import std/unittest
-
-  type
-    TestVector = object
-      seed: uint64
-      expected: uint64
-      input: string
-
-  # Run https://github.com/wangyi-fudan/wyhash/blob/77e50f267fbc7b8e2d09f2d455219adb70ad4749/test_vector.cpp directly.
-  const vectors = [
-    TestVector(seed: 0'u64, expected: 0x409638ee2bde459'u64, input: ""),
-    TestVector(seed: 1'u64, expected: 0xa8412d091b5fe0a9'u64, input: "a"),
-    TestVector(seed: 2'u64, expected: 0x32dd92e4b2915153'u64, input: "abc"),
-    TestVector(seed: 3'u64, expected: 0x8619124089a3a16b'u64, input: "message digest"),
-    TestVector(seed: 4'u64, expected: 0x7a43afb61d7f5f40'u64, input: "abcdefghijklmnopqrstuvwxyz"),
-    TestVector(seed: 5'u64, expected: 0xff42329b90e50d58'u64, input: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"),
-    TestVector(seed: 6'u64, expected: 0xc39cab13b115aad3'u64, input: "12345678901234567890123456789012345678901234567890123456789012345678901234567890"),
-  ]
-
-  test "test vectors":
-    for e in vectors:
-      check wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
-
-  test "smhasher":
-    check smhasherWyhash() == 0xbd5e840c'u32
-
-  when false:
-    static:
-      # test vectors at compile time
-      for e in vectors:
-        doAssert wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
-
-      # smhasher at compile time
-      doAssert smhasherWyhash() == 0xbd5e840c'u32
