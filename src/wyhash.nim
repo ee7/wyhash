@@ -1,7 +1,9 @@
-# Zig implementation of wyhash version 4.1 [1].
+# A Nim implementation of wyhash version 4.1 [1].
 #
-# This implementation is from the Zig standard library [2], and has the
-# following license [3]:
+# This Nim code is ported from the Zig stdlib implementation [2], which is
+# competitive with the C reference implementation.
+#
+# The Zig implementation has the following license [3]:
 #
 #   The MIT License (Expat)
 #
@@ -28,272 +30,228 @@
 # [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
 # [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig
 # [3] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/LICENSE
-const std = @import("std");
+const secret = [
+    0xa0761d6478bd642f'u64,
+    0xe7037ed1a0b428db'u64,
+    0x8ebc6af09c88c6e3'u64,
+    0x589965cc75374cc3'u64,
+]
 
-pub const Wyhash = struct {
-    const secret = [_]u64{
-        0xa0761d6478bd642f,
-        0xe7037ed1a0b428db,
-        0x8ebc6af09c88c6e3,
-        0x589965cc75374cc3,
-    };
+type
+  Usize = uint64
 
-    a: u64,
-    b: u64,
-    state: [3]u64,
-    total_len: usize,
+type
+  Wyhash* = object
+    a: uint64
+    b: uint64
+    state: array[3, uint64]
+    totalLen: Usize
+    buf: array[48, uint8]
+    bufLen: Usize
 
-    buf: [48]u8,
-    buf_len: usize,
+func init*(T: typedesc[Wyhash], seed: uint64): T =
+  result = T(
+    totalLen: 0,
+    bufLen: 0,
+  )
 
-    pub fn init(seed: u64) Wyhash {
-        var self = Wyhash{
-            .a = undefined,
-            .b = undefined,
-            .state = undefined,
-            .total_len = 0,
-            .buf = undefined,
-            .buf_len = 0,
-        };
+  result.state[0] = seed ^ mix(seed ^ secret[0], secret[1])
+  result.state[1] = result.state[0]
+  result.state[2] = result.state[0]
 
-        self.state[0] = seed ^ mix(seed ^ secret[0], secret[1]);
-        self.state[1] = self.state[0];
-        self.state[2] = self.state[0];
-        return self;
-    }
+func update*(self: var Wyhash, input: openArray[uint8]) =
+  ## This is subtly different from other hash function update calls. Wyhash requires the last
+  ## full 48-byte block to be run through final1 if is exactly aligned to 48-bytes.
+  self.totalLen += input.len.Usize
 
-    // This is subtly different from other hash function update calls. Wyhash requires the last
-    // full 48-byte block to be run through final1 if is exactly aligned to 48-bytes.
-    pub fn update(self: *Wyhash, input: []const u8) void {
-        self.total_len += input.len;
+  if (input.len <= 48 - self.bufLen.int):
+    copyMem(self.buf[self.bufLen..^1][0..<input.len], input)
+    self.bufLen += input.len.Usize
+    return
 
-        if (input.len <= 48 - self.buf_len) {
-            @memcpy(self.buf[self.buf_len..][0..input.len], input);
-            self.buf_len += input.len;
-            return;
-        }
+  var i: Usize = 0
 
-        var i: usize = 0;
+  if (self.bufLen > 0):
+    i = 48 - self.bufLen
+    copyMem(self.buf[self.bufLen..^1][0..<i], input[0..<i])
+    self.round(self.buf)
+    self.bufLen = 0
 
-        if (self.buf_len > 0) {
-            i = 48 - self.buf_len;
-            @memcpy(self.buf[self.buf_len..][0..i], input[0..i]);
-            self.round(&self.buf);
-            self.buf_len = 0;
-        }
+  while (i + 48 < input.len):
+    self.round(input[i..^1][0..<48])
+    i += 48
 
-        while (i + 48 < input.len) : (i += 48) {
-            self.round(input[i..][0..48]);
-        }
+  let remainingBytes = input[i..^1]
+  if (remainingBytes.len < 16 and i >= 48):
+    let rem = 16 - remainingBytes.len
+    copyMem(self.buf[self.buf.len - rem .. ^1], input[i - rem ..< i])
+  copyMem(self.buf[0..<remainingBytes.len], remainingBytes)
+  self.bufLen = remainingBytes.len
 
-        const remaining_bytes = input[i..];
-        if (remaining_bytes.len < 16 and i >= 48) {
-            const rem = 16 - remaining_bytes.len;
-            @memcpy(self.buf[self.buf.len - rem ..], input[i - rem .. i]);
-        }
-        @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
-        self.buf_len = remaining_bytes.len;
-    }
+func final*(self: var Wyhash): uint64 =
+  let input = self.buf[0..<self.bufLen]
+  var newSelf = self.shallowCopy() # Ensure idempotency.
 
-    pub fn final(self: *Wyhash) u64 {
-        var input: []const u8 = self.buf[0..self.buf_len];
-        var newSelf = self.shallowCopy(); // ensure idempotency
+  if (self.totalLen <= 16):
+    newSelf.smallKey(input)
+  else:
+    var offset: Usize = 0
+    if (self.bufLen < 16):
+      var scratch: [16]uint8 = undefined
+      let rem = 16 - self.bufLen
+      copyMem(scratch[0..<rem], self.buf[self.buf.len - rem .. ^1][0..<rem])
+      copyMem(scratch[rem..<1][0..<self.bufLen], self.buf[0..<self.bufLen])
 
-        if (self.total_len <= 16) {
-            newSelf.smallKey(input);
-        } else {
-            var offset: usize = 0;
-            if (self.buf_len < 16) {
-                var scratch: [16]u8 = undefined;
-                const rem = 16 - self.buf_len;
-                @memcpy(scratch[0..rem], self.buf[self.buf.len - rem ..][0..rem]);
-                @memcpy(scratch[rem..][0..self.buf_len], self.buf[0..self.buf_len]);
+      # Same as input but with additional bytes preceeding start in case of a short buffer.
+      input = scratch
+      offset = rem
 
-                // Same as input but with additional bytes preceeding start in case of a short buffer
-                input = &scratch;
-                offset = rem;
-            }
+    newSelf.final0()
+    newSelf.final1(input, offset)
 
-            newSelf.final0();
-            newSelf.final1(input, offset);
-        }
+  result = newSelf.final2()
 
-        return newSelf.final2();
-    }
+func shallowCopy(self: var Wyhash): Wyhash {.inline.} =
+  ## Copies the core wyhash state but not any internal buffers.
+  Wyhash(
+    a: self.a,
+    b: self.b,
+    state: self.state,
+    totalLen: self.totalLen,
+  )
 
-    // Copies the core wyhash state but not any internal buffers.
-    inline fn shallowCopy(self: *Wyhash) Wyhash {
-        return .{
-            .a = self.a,
-            .b = self.b,
-            .state = self.state,
-            .total_len = self.total_len,
-            .buf = undefined,
-            .buf_len = undefined,
-        };
-    }
+func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
+  assert input.len <= 16
 
-    inline fn smallKey(self: *Wyhash, input: []const u8) void {
-        std.debug.assert(input.len <= 16);
+  if (input.len >= 4):
+    let last = input.len - 4
+    let quarter = (input.len >> 3) << 2
+    self.a = (read(4, input[0..^1]) << 32) | read(4, input[quarter..^1])
+    self.b = (read(4, input[last..^1]) << 32) | read(4, input[last - quarter .. ^1])
+  elif (input.len > 0):
+    self.a = (@as(uint64, input[0]) << 16) | (@as(uint64, input[input.len >> 1]) << 8) | input[input.len - 1]
+    self.b = 0
+  else:
+    self.a = 0
+    self.b = 0
 
-        if (input.len >= 4) {
-            const end = input.len - 4;
-            const quarter = (input.len >> 3) << 2;
-            self.a = (read(4, input[0..]) << 32) | read(4, input[quarter..]);
-            self.b = (read(4, input[end..]) << 32) | read(4, input[end - quarter ..]);
-        } else if (input.len > 0) {
-            self.a = (@as(u64, input[0]) << 16) | (@as(u64, input[input.len >> 1]) << 8) | input[input.len - 1];
-            self.b = 0;
-        } else {
-            self.a = 0;
-            self.b = 0;
-        }
-    }
+func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
+  for i in 0..2:
+    let a = read(8, input[8 * (2 * i) .. ^1])
+    let b = read(8, input[8 * (2 * i + 1) .. ^1])
+    self.state[i] = mix(a ^ secret[i + 1], b ^ self.state[i])
 
-    inline fn round(self: *Wyhash, input: *const [48]u8) void {
-        inline for (0..3) |i| {
-            const a = read(8, input[8 * (2 * i) ..]);
-            const b = read(8, input[8 * (2 * i + 1) ..]);
-            self.state[i] = mix(a ^ secret[i + 1], b ^ self.state[i]);
-        }
-    }
+func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
+  assert bytes <= 8
+  const T = std.meta.Int(.unsigned, 8 * bytes)
+  result = @as(uint64, std.mem.readIntLittle(T, data[0..<bytes]))
 
-    inline fn read(comptime bytes: usize, data: []const u8) u64 {
-        std.debug.assert(bytes <= 8);
-        const T = std.meta.Int(.unsigned, 8 * bytes);
-        return @as(u64, std.mem.readIntLittle(T, data[0..bytes]));
-    }
+func mum(a: var uint64, b: var uint64) {.inline.} =
+  let x = @as(u128, a) *% b
+  a = @as(uint64, @truncate(x))
+  b = @as(uint64, @truncate(x >> 64))
 
-    inline fn mum(a: *u64, b: *u64) void {
-        const x = @as(u128, a.*) *% b.*;
-        a.* = @as(u64, @truncate(x));
-        b.* = @as(u64, @truncate(x >> 64));
-    }
+func mix(a: uint64, b: uint64): uint64 {.inline.} =
+  var a = a
+  var b = b
+  mum(a, b)
+  result = a ^ b
 
-    inline fn mix(a_: u64, b_: u64) u64 {
-        var a = a_;
-        var b = b_;
-        mum(&a, &b);
-        return a ^ b;
-    }
+func final0(self: var Wyhash) {.inline.} =
+  self.state[0] ^= self.state[1] ^ self.state[2]
 
-    inline fn final0(self: *Wyhash) void {
-        self.state[0] ^= self.state[1] ^ self.state[2];
-    }
+func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inline.} =
+  ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
+  ## function will be used instead). We use an index into a slice to for
+  ## compile-time processing as opposed to if we used pointers.
+  assert inputLB.len >= 16
+  assert inputLB.len - startPos <= 48
+  let input = inputLB[startPos..^1]
 
-    // input_lb must be at least 16-bytes long (in shorter key cases the smallKey function will be
-    // used instead). We use an index into a slice to for comptime processing as opposed to if we
-    // used pointers.
-    inline fn final1(self: *Wyhash, input_lb: []const u8, start_pos: usize) void {
-        std.debug.assert(input_lb.len >= 16);
-        std.debug.assert(input_lb.len - start_pos <= 48);
-        const input = input_lb[start_pos..];
+  var i: Usize = 0
+  while (i + 16 < input.len):
+    self.state[0] = mix(read(8, input[i..^1]) ^ secret[1], read(8, input[i + 8 .. ^1]) ^ self.state[0])
+    i += 16
 
-        var i: usize = 0;
-        while (i + 16 < input.len) : (i += 16) {
-            self.state[0] = mix(read(8, input[i..]) ^ secret[1], read(8, input[i + 8 ..]) ^ self.state[0]);
-        }
+  self.a = read(8, inputLB[inputLB.len - 16 .. ^1][0..<8])
+  self.b = read(8, inputLB[inputLB.len - 8 .. ^1][0..<8])
 
-        self.a = read(8, input_lb[input_lb.len - 16 ..][0..8]);
-        self.b = read(8, input_lb[input_lb.len - 8 ..][0..8]);
-    }
+func final2(self: var Wyhash): uint64 {.inline.} =
+  self.a ^= secret[1]
+  self.b ^= self.state[0]
+  mum(self.a, self.b)
+  result = mix(self.a ^ secret[0] ^ self.totalLen, self.b ^ secret[1])
 
-    inline fn final2(self: *Wyhash) u64 {
-        self.a ^= secret[1];
-        self.b ^= self.state[0];
-        mum(&self.a, &self.b);
-        return mix(self.a ^ secret[0] ^ self.total_len, self.b ^ secret[1]);
-    }
+func hash*(seed: uint64, input: openArray[uint8]): uint64 =
+  var self = Wyhash.init(seed)
 
-    pub fn hash(seed: u64, input: []const u8) u64 {
-        var self = Wyhash.init(seed);
+  if (input.len <= 16):
+    self.smallKey(input)
+  else:
+    var i: Usize = 0
+    if (input.len >= 48):
+      while (i + 48 < input.len):
+        self.round(input[i..^1][0..<48])
+        i += 48
+      self.final0()
+    self.final1(input, i)
 
-        if (input.len <= 16) {
-            self.smallKey(input);
-        } else {
-            var i: usize = 0;
-            if (input.len >= 48) {
-                while (i + 48 < input.len) : (i += 48) {
-                    self.round(input[i..][0..48]);
-                }
-                self.final0();
-            }
-            self.final1(input, i);
-        }
+  self.totalLen = input.len
+  result = self.final2()
 
-        self.total_len = input.len;
-        return self.final2();
-    }
-};
+when isMainModule:
+  import std/unittest
 
-const verify = @import("verify.zig");
-const expectEqual = std.testing.expectEqual;
+  type
+    TestVector = object
+      seed: uint64
+      expected: uint64
+      input: string
 
-const TestVector = struct {
-    expected: u64,
-    seed: u64,
-    input: []const u8,
-};
+  # Run https://github.com/wangyi-fudan/wyhash/blob/77e50f267fbc7b8e2d09f2d455219adb70ad4749/test_vector.cpp directly.
+  const vectors = [
+    TestVector(seed: 0'u64, expected: 0x409638ee2bde459'u64, input: ""),
+    TestVector(seed: 1'u64, expected: 0xa8412d091b5fe0a9'u64, input: "a"),
+    TestVector(seed: 2'u64, expected: 0x32dd92e4b2915153'u64, input: "abc"),
+    TestVector(seed: 3'u64, expected: 0x8619124089a3a16b'u64, input: "message digest"),
+    TestVector(seed: 4'u64, expected: 0x7a43afb61d7f5f40'u64, input: "abcdefghijklmnopqrstuvwxyz"),
+    TestVector(seed: 5'u64, expected: 0xff42329b90e50d58'u64, input: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"),
+    TestVector(seed: 6'u64, expected: 0xc39cab13b115aad3'u64, input: "12345678901234567890123456789012345678901234567890123456789012345678901234567890"),
+  ]
 
-// Run https://github.com/wangyi-fudan/wyhash/blob/77e50f267fbc7b8e2d09f2d455219adb70ad4749/test_vector.cpp directly.
-const vectors = [_]TestVector{
-    .{ .seed = 0, .expected = 0x409638ee2bde459, .input = "" },
-    .{ .seed = 1, .expected = 0xa8412d091b5fe0a9, .input = "a" },
-    .{ .seed = 2, .expected = 0x32dd92e4b2915153, .input = "abc" },
-    .{ .seed = 3, .expected = 0x8619124089a3a16b, .input = "message digest" },
-    .{ .seed = 4, .expected = 0x7a43afb61d7f5f40, .input = "abcdefghijklmnopqrstuvwxyz" },
-    .{ .seed = 5, .expected = 0xff42329b90e50d58, .input = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" },
-    .{ .seed = 6, .expected = 0xc39cab13b115aad3, .input = "12345678901234567890123456789012345678901234567890123456789012345678901234567890" },
-};
+  test "test vectors":
+    for e in vectors:
+      check Wyhash.hash(e.seed, e.input) == e.expected
 
-test "test vectors" {
-    for (vectors) |e| {
-        try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
-    }
-}
+  test "test vectors at compile time":
+    static:
+      for e in vectors:
+        check Wyhash.hash(e.seed, e.input) == e.expected
 
-test "test vectors at comptime" {
-    comptime {
-        inline for (vectors) |e| {
-            try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
-        }
-    }
-}
+  # test "smhasher":
+  #   func do =
+  #     check verify.smhasher(Wyhash.hash) == 0xBD5E840C
+  #   do()
+  #   static:
+  #     do()
 
-test "smhasher" {
-    const Test = struct {
-        fn do() !void {
-            try expectEqual(verify.smhasher(Wyhash.hash), 0xBD5E840C);
-        }
-    };
-    try Test.do();
-    @setEvalBranchQuota(50000);
-    try comptime Test.do();
-}
+  # test "iterative api":
+  #   func do() !void =
+  #     try verify.iterativeApi(Wyhash)
+  #   do()
+  #   static:
+  #     do()
 
-test "iterative api" {
-    const Test = struct {
-        fn do() !void {
-            try verify.iterativeApi(Wyhash);
-        }
-    };
-    try Test.do();
-    @setEvalBranchQuota(50000);
-    try comptime Test.do();
-}
+  test "iterative maintains last sixteen":
+    const input = 'Z'.repeat(48) & "01234567890abcdefg"
+    const seed = 0
 
-test "iterative maintains last sixteen" {
-    const input = "Z" ** 48 ++ "01234567890abcdefg";
-    const seed = 0;
+    for i in 0..16:
+      let payload = input[0 ..< input.len - i]
+      let nonIterativeHash = Wyhash.hash(seed, payload)
 
-    for (0..17) |i| {
-        const payload = input[0 .. input.len - i];
-        const non_iterative_hash = Wyhash.hash(seed, payload);
+      var wh = Wyhash.init(seed)
+      wh.update(payload)
+      let iterativeHash = wh.final()
 
-        var wh = Wyhash.init(seed);
-        wh.update(payload);
-        const iterative_hash = wh.final();
-
-        try expectEqual(non_iterative_hash, iterative_hash);
-    }
-}
+      check nonIterativeHash == iterativeHash
