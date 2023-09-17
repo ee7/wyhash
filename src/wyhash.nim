@@ -121,6 +121,15 @@ func init(T: typedesc[Wyhash], seed: uint64): T =
   result.state[2] = result.state[0]
 
 func wyhash*(seed: uint64, input: openArray[byte]): uint64 =
+  ## Returns a hash of `input` with the given `seed`.
+  ##
+  ## Implements Wyhash version 4.1 [1], a fast hash function with excellent
+  ## output quality [2].
+  ##
+  ## Uses a fast path for `input`s up to (and including) 16 bytes long.
+  ##
+  ## [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
+  ## [2] https://github.com/rurban/smhasher
   var self = Wyhash.init(seed)
 
   if input.len <= 16:
