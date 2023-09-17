@@ -79,11 +79,11 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inli
   ## function will be used instead). We use an index into a slice to for
   ## compile-time processing as opposed to if we used pointers.
   assert inputLB.len >= 16
-  assert inputLB.len - startPos <= 48
+  assert inputLB.len - startPos.int <= 48
   let input = inputLB[startPos..^1]
 
   var i: Usize = 0
-  while (i + 16 < input.len):
+  while (i + 16 < input.len.Usize):
     self.state[0] = mix(read(8, input[i..^1]) xor secret[1], read(8, input[i + 8 .. ^1]) xor self.state[0])
     i += 16
 
@@ -138,13 +138,13 @@ func hash*(seed: uint64, input: openArray[uint8]): uint64 =
   else:
     var i: Usize = 0
     if (input.len >= 48):
-      while (i + 48 < input.len):
-        self.round(input[i..^1][0..<48])
+      while (i + 48 < input.len.Usize):
+        self.round(input[i .. ^1][0 ..< 48])
         i += 48
       self.final0()
     self.final1(input, i)
 
-  self.totalLen = input.len
+  self.totalLen = input.len.Usize
   result = self.final2()
 
 func update*(self: var Wyhash, input: openArray[uint8]) =
@@ -153,7 +153,7 @@ func update*(self: var Wyhash, input: openArray[uint8]) =
   self.totalLen += input.len.Usize
 
   if (input.len <= 48 - self.bufLen.int):
-    copyMem(self.buf[self.bufLen..^1][0..<input.len], input)
+    copyMem(self.buf[self.bufLen .. ^1][0 ..< input.len], input)
     self.bufLen += input.len.Usize
     return
 
@@ -161,12 +161,12 @@ func update*(self: var Wyhash, input: openArray[uint8]) =
 
   if (self.bufLen > 0):
     i = 48 - self.bufLen
-    copyMem(self.buf[self.bufLen..^1][0..<i], input[0..<i])
+    copyMem(self.buf[self.bufLen .. ^1][0 ..< i], input[0 ..< i])
     self.round(self.buf)
     self.bufLen = 0
 
-  while (i + 48 < input.len):
-    self.round(input[i..^1][0..<48])
+  while (i + 48 < input.len.Usize):
+    self.round(input[i .. ^1][0 ..< 48])
     i += 48
 
   let remainingBytes = input[i..^1]
@@ -174,10 +174,10 @@ func update*(self: var Wyhash, input: openArray[uint8]) =
     let rem = 16 - remainingBytes.len
     copyMem(self.buf[self.buf.len - rem .. ^1], input[i - rem ..< i])
   copyMem(self.buf[0..<remainingBytes.len], remainingBytes)
-  self.bufLen = remainingBytes.len
+  self.bufLen = remainingBytes.len.Usize
 
 func final*(self: var Wyhash): uint64 =
-  let input = self.buf[0..<self.bufLen]
+  var input = self.buf[0 ..< self.bufLen]
   var newSelf = self.shallowCopy() # Ensure idempotency.
 
   if (self.totalLen <= 16):
@@ -185,10 +185,10 @@ func final*(self: var Wyhash): uint64 =
   else:
     var offset: Usize = 0
     if (self.bufLen < 16):
-      var scratch: [16]uint8 = undefined
+      var scratch {.noinit.}: array[16, uint8]
       let rem = 16 - self.bufLen
-      copyMem(scratch[0..<rem], self.buf[self.buf.len - rem .. ^1][0..<rem])
-      copyMem(scratch[rem..<1][0..<self.bufLen], self.buf[0..<self.bufLen])
+      copyMem(scratch[0 ..< rem], self.buf[self.buf.len - rem .. ^1][0 ..< rem])
+      copyMem(scratch[rem ..< 1][0 ..< self.bufLen], self.buf[0 ..< self.bufLen])
 
       # Same as input but with additional bytes preceeding start in case of a short buffer.
       input = scratch
