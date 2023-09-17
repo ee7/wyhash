@@ -54,32 +54,32 @@ type
     state: array[3, uint64]
     totalLen: Usize
 
-func mum(a: var uint64, b: var uint64) {.inline.} =
+func mum(a: var uint64, b: var uint64) =
   let x = mul128(a, b)
   a = x.lo
   b = x.hi
 
-func mix(a: uint64, b: uint64): uint64 {.inline.} =
+func mix(a: uint64, b: uint64): uint64 =
   var a = a
   var b = b
   mum(a, b)
   result = a xor b
 
-func read(data: openArray[uint8], bytes: static Usize, start: int): uint64 {.inline.} =
+func read(data: openArray[uint8], bytes: static Usize, start: int): uint64 =
   assert bytes <= 8
   result = 0
   copyMem(result.addr, data[start].addr, bytes)
 
-func round(self: var Wyhash, input: openArray[uint8]) {.inline.} =
+func round(self: var Wyhash, input: openArray[uint8]) =
   for i in 0..2:
     let a = input.read(8, 8 * 2 * i)
     let b = input.read(8, 8 * (2 * i + 1))
     self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
 
-func final0(self: var Wyhash) {.inline.} =
+func final0(self: var Wyhash) =
   self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
 
-func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inline.} =
+func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) =
   ## `inputLB` must be at least 16-bytes long (in shorter key cases the `smallKey`
   ## function will be used instead). We use an index into a slice to for
   ## compile-time processing as opposed to if we used pointers.
@@ -96,13 +96,13 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inli
   self.a = inputLB.read(8, inputLB.len - 16)
   self.b = inputLB.read(8, inputLB.len - 8)
 
-func final2(self: var Wyhash): uint64 {.inline.} =
+func final2(self: var Wyhash): uint64 =
   self.a = self.a xor secret[1]
   self.b = self.b xor self.state[0]
   mum(self.a, self.b)
   result = mix(self.a xor secret[0] xor self.totalLen, self.b xor secret[1])
 
-func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
+func smallKey(self: var Wyhash, input: openArray[uint8]) =
   assert input.len <= 16
   if (input.len >= 4):
     let last = input.len - 4
