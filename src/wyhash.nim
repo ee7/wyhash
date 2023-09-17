@@ -30,6 +30,8 @@
 # [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
 # [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig
 # [3] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/LICENSE
+from std/private/dragonbox import mul128
+
 const secret = [
     0xa0761d6478bd642f'u64,
     0xe7037ed1a0b428db'u64,
@@ -50,9 +52,9 @@ type
     bufLen: Usize
 
 func mum(a: var uint64, b: var uint64) {.inline.} =
-  let x = a.uint128 *% b
-  a = @truncate(x).uint64
-  b = @truncate(x shr 64).uint64
+  let x = mul128(a, b)
+  a = x.lo
+  b = x.hi
 
 func mix(a: uint64, b: uint64): uint64 {.inline.} =
   var a = a
