@@ -62,10 +62,10 @@ func mix(a: uint64, b: uint64): uint64 =
   mum(a, b)
   result = a xor b
 
-func read(data: openArray[uint8], bytes: static int, start: int): uint64 =
-  assert bytes <= 8
+func read(data: openArray[uint8], numBytes: static int, start: int): uint64 =
+  assert numBytes <= 8
   result = 0
-  copyMem(result.addr, data[start].addr, bytes)
+  copyMem(result.addr, data[start].addr, numBytes)
 
 func round(self: var Wyhash, input: openArray[uint8]) =
   for i in 0..2:
