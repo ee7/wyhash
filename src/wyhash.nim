@@ -65,15 +65,15 @@ func mix(a: uint64, b: uint64): uint64 {.inline.} =
   mum(a, b)
   result = a xor b
 
-func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
+func read(data: openArray[uint8], bytes: static Usize, start: int): uint64 {.inline.} =
   assert bytes <= 8
   result = 0
-  copyMem(result.addr, data.addr, bytes)
+  copyMem(result.addr, data[start].addr, bytes)
 
 func round(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   for i in 0..2:
-    let a = read(8, toOpenArray(input, 8 * 2 * i, input.high))
-    let b = read(8, toOpenArray(input, 8 * (2 * i + 1), input.high))
+    let a = input.read(8, 8 * 2 * i)
+    let b = input.read(8, 8 * (2 * i + 1))
     self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
 
 func final0(self: var Wyhash) {.inline.} =
@@ -89,14 +89,12 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inli
 
   var i: Usize = 0
   while (i + 16 < input.len.Usize):
-    self.state[0] = mix(
-      read(8, toOpenArray(input, i.int, input.high)) xor secret[1],
-      read(8, toOpenArray(input, i.int + 8, input.high)) xor self.state[0]
-    )
+    self.state[0] = mix(input.read(8, i.int) xor secret[1],
+                        input.read(8, i.int + 8) xor self.state[0])
     i += 16
 
-  self.a = read(8, toOpenArray(inputLB, inputLB.len - 16, input.high))
-  self.b = read(8, toOpenArray(inputLB, inputLB.len - 8, input.high))
+  self.a = inputLB.read(8, inputLB.len - 16)
+  self.b = inputLB.read(8, inputLB.len - 8)
 
 func final2(self: var Wyhash): uint64 {.inline.} =
   self.a = self.a xor secret[1]
@@ -109,8 +107,8 @@ func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   if (input.len >= 4):
     let last = input.len - 4
     let quarter = (input.len shr 3) shl 2
-    self.a = (read(4, input) shl 32) or read(4, toOpenArray(input, quarter, input.high))
-    self.b = (read(4, toOpenArray(input, last, input.high)) shl 32) or read(4, toOpenArray(input, last - quarter, input.high))
+    self.a = (input.read(4, 0) shl 32) or input.read(4, quarter)
+    self.b = (input.read(4, last) shl 32) or input.read(4, last - quarter)
   elif (input.len > 0):
     self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
     self.b = 0
