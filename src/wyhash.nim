@@ -62,12 +62,12 @@ func mix(a: uint64, b: uint64): uint64 =
   mum(a, b)
   result = a xor b
 
-func read(data: openArray[uint8], numBytes: static int, start: int): uint64 =
+func read(data: openArray[byte], numBytes: static int, start: int): uint64 =
   assert numBytes <= 8
   result = 0
   copyMem(result.addr, data[start].addr, numBytes)
 
-func round(self: var Wyhash, input: openArray[uint8]) =
+func round(self: var Wyhash, input: openArray[byte]) =
   for i in 0..2:
     let a = input.read(8, 8 * 2 * i)
     let b = input.read(8, 8 * (2 * i + 1))
@@ -76,7 +76,7 @@ func round(self: var Wyhash, input: openArray[uint8]) =
 func final0(self: var Wyhash) =
   self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
 
-func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: int) =
+func final1(self: var Wyhash, inputLB: openArray[byte], startPos: int) =
   ## `inputLB` must be at least 16-bytes long (for shorter keys, the `smallKey`
   ## function is used instead of this one).
   assert inputLB.len >= 16
@@ -98,7 +98,7 @@ func final2(self: var Wyhash): uint64 =
   mum(self.a, self.b)
   result = mix(self.a xor secret[0] xor self.totalLen, self.b xor secret[1])
 
-func smallKey(self: var Wyhash, input: openArray[uint8]) =
+func smallKey(self: var Wyhash, input: openArray[byte]) =
   assert input.len <= 16
   if input.len >= 4:
     let last = input.len - 4
@@ -120,7 +120,7 @@ func init(T: typedesc[Wyhash], seed: uint64): T =
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
 
-func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
+func wyhash*(seed: uint64, input: openArray[byte]): uint64 =
   var self = Wyhash.init(seed)
 
   if input.len <= 16:
