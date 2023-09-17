@@ -64,13 +64,13 @@ func mix(a: uint64, b: uint64): uint64 {.inline.} =
 
 func read(bytes: static Usize, data: openArray[uint8]): uint64 {.inline.} =
   assert bytes <= 8
-  const T = std.meta.Int(.unsigned, 8 * bytes)
-  result = std.mem.readIntLittle(T, data[0..<bytes]).uint64
+  result = 0
+  copyMem(result.addr, data.addr, bytes)
 
-func round(self: var Wyhash, input: array[48, uint8]) {.inline.} =
+func round(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   for i in 0..2:
-    let a = read(8, input[8 * (2 * i) .. ^1])
-    let b = read(8, input[8 * (2 * i + 1) .. ^1])
+    let a = read(8, toOpenArray(input, 8 * 2 * i, input.high))
+    let b = read(8, toOpenArray(input, 8 * (2 * i + 1), input.high))
     self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
 
 func final0(self: var Wyhash) {.inline.} =
@@ -86,11 +86,14 @@ func final1(self: var Wyhash, inputLB: openArray[uint8], startPos: Usize) {.inli
 
   var i: Usize = 0
   while (i + 16 < input.len.Usize):
-    self.state[0] = mix(read(8, input[i..^1]) xor secret[1], read(8, input[i + 8 .. ^1]) xor self.state[0])
+    self.state[0] = mix(
+      read(8, toOpenArray(input, i.int, input.high)) xor secret[1],
+      read(8, toOpenArray(input, i.int + 8, input.high)) xor self.state[0]
+    )
     i += 16
 
-  self.a = read(8, inputLB[inputLB.len - 16 .. ^1][0..<8])
-  self.b = read(8, inputLB[inputLB.len - 8 .. ^1][0..<8])
+  self.a = read(8, toOpenArray(inputLB, inputLB.len - 16, input.high))
+  self.b = read(8, toOpenArray(inputLB, inputLB.len - 8, input.high))
 
 func final2(self: var Wyhash): uint64 {.inline.} =
   self.a = self.a xor secret[1]
@@ -104,8 +107,8 @@ func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   if (input.len >= 4):
     let last = input.len - 4
     let quarter = (input.len shr 3) shl 2
-    self.a = (read(4, input[0..^1]) shl 32) or read(4, input[quarter..^1])
-    self.b = (read(4, input[last..^1]) shl 32) or read(4, input[last - quarter .. ^1])
+    self.a = (read(4, input) shl 32) or read(4, toOpenArray(input, quarter, input.high))
+    self.b = (read(4, toOpenArray(input, last, input.high)) shl 32) or read(4, toOpenArray(input, last - quarter, input.high))
   elif (input.len > 0):
     self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
     self.b = 0
@@ -141,7 +144,7 @@ func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
     var i: Usize = 0
     if (input.len >= 48):
       while (i + 48 < input.len.Usize):
-        self.round(input[i .. ^1][0 ..< 48])
+        self.round(toOpenArray(input, i.int, input.high))
         i += 48
       self.final0()
     self.final1(input, i)
@@ -151,11 +154,11 @@ func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
 
 func update*(self: var Wyhash, input: openArray[uint8]) =
   ## This is subtly different from other hash function update calls. Wyhash requires the last
-  ## full 48-byte block to be run through final1 if is exactly aligned to 48-bytes.
+  ## full 48-byte block to be run through `final1` if is exactly aligned to 48-bytes.
   self.totalLen += input.len.Usize
 
   if (input.len <= 48 - self.bufLen.int):
-    copyMem(self.buf[self.bufLen .. ^1][0 ..< input.len], input)
+    copyMem(self.buf[self.bufLen].addr, input.addr, input.len)
     self.bufLen += input.len.Usize
     return
 
@@ -163,20 +166,20 @@ func update*(self: var Wyhash, input: openArray[uint8]) =
 
   if (self.bufLen > 0):
     i = 48 - self.bufLen
-    copyMem(self.buf[self.bufLen .. ^1][0 ..< i], input[0 ..< i])
+    copyMem(self.buf[self.bufLen].addr, input.addr, i)
     self.round(self.buf)
     self.bufLen = 0
 
   while (i + 48 < input.len.Usize):
-    self.round(input[i .. ^1][0 ..< 48])
+    self.round(toOpenArray(input, i.int, input.high))
     i += 48
 
-  let remainingBytes = input[i..^1]
-  if (remainingBytes.len < 16 and i >= 48):
-    let rem = 16 - remainingBytes.len
-    copyMem(self.buf[self.buf.len - rem .. ^1], input[i - rem ..< i])
-  copyMem(self.buf[0..<remainingBytes.len], remainingBytes)
-  self.bufLen = remainingBytes.len.Usize
+  let remainingBytesLen = input.len - i.int
+  if (remainingBytesLen < 16 and i >= 48):
+    let rem = 16 - remainingBytesLen
+    copyMem(self.buf[self.buf.len - rem].addr, input[i - rem.Usize].addr, rem)
+  copyMem(self.buf[0].addr, input[i].addr, remainingBytesLen)
+  self.bufLen = remainingBytesLen.Usize
 
 func final*(self: var Wyhash): uint64 =
   var input = self.buf[0 ..< self.bufLen]
@@ -189,11 +192,11 @@ func final*(self: var Wyhash): uint64 =
     if (self.bufLen < 16):
       var scratch {.noinit.}: array[16, uint8]
       let rem = 16 - self.bufLen
-      copyMem(scratch[0 ..< rem], self.buf[self.buf.len - rem .. ^1][0 ..< rem])
-      copyMem(scratch[rem ..< 1][0 ..< self.bufLen], self.buf[0 ..< self.bufLen])
+      copyMem(scratch[0].addr, self.buf[self.buf.len.Usize - rem].addr, rem)
+      copyMem(scratch[rem].addr, self.buf[0].addr, self.bufLen)
 
       # Same as input but with additional bytes preceeding start in case of a short buffer.
-      input = scratch
+      copyMem(input.addr, scratch.addr, scratch.len)
       offset = rem
 
     newSelf.final0()
@@ -223,37 +226,30 @@ when isMainModule:
 
   test "test vectors":
     for e in vectors:
-      check wyhash(e.seed, e.input) == e.expected
+      check wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
 
-  test "test vectors at compile time":
+  when false:
     static:
+      # test vectors at compile time
       for e in vectors:
-        check wyhash(e.seed, e.input) == e.expected
+        doAssert wyhash(e.seed, e.input.toOpenArrayByte(0, e.input.high)) == e.expected
 
-  # test "smhasher":
-  #   func do =
-  #     check verify.smhasher(wyhash) == 0xBD5E840C
-  #   do()
-  #   static:
-  #     do()
+    test "smhasher":
+      check smhasherWyhash() == 0xbd5e840c
 
-  # test "iterative api":
-  #   func do() !void =
-  #     try verify.iterativeApi(Wyhash)
-  #   do()
-  #   static:
-  #     do()
+    test "iterative interface":
+      verifyIterativeWyhash()
 
-  test "iterative maintains last sixteen":
-    const input = 'Z'.repeat(48) & "01234567890abcdefg"
-    const seed = 0
+    test "iterative interface maintains last sixteen":
+      const seed = 0
+      const input = 'Z'.repeat(48) & "01234567890abcdefg"
 
-    for i in 0..16:
-      let payload = input[0 ..< input.len - i]
-      let nonIterativeHash = wyhash(seed, payload)
+      for i in 0..16:
+        var payload = input[0 .. ^(i+1)]
+        let nonIterativeHash = wyhash(seed, payload)
 
-      var wh = Wyhash.init(seed)
-      wh.update(payload)
-      let iterativeHash = wh.final()
+        var wh = Wyhash.init(seed)
+        wh.update(payload)
+        let iterativeHash = wh.final()
 
-      check nonIterativeHash == iterativeHash
+        check nonIterativeHash == iterativeHash
