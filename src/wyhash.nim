@@ -123,7 +123,7 @@ func init(T: typedesc[Wyhash], seed: uint64): T =
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
 
-func wyhash*(seed: uint64, input: openArray[byte]): uint64 =
+func wyhash*(input: openArray[byte], seed: uint64): uint64 =
   ## Returns a hash of `input` with the given `seed`.
   ##
   ## Implements Wyhash version 4.1 [1], a fast hash function with excellent

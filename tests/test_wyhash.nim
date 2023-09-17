@@ -44,10 +44,10 @@ func smhasherWyhash: uint32 =
 
   for i in 0..255:
     buf[i] = i.byte
-    let h = wyhash((256 - i).uint64, toOpenArray(buf, 0, i - 1))
+    let h = toOpenArray(buf, 0, i - 1).wyhash((256 - i).uint64)
     copyMem(bufAll[i * hashSize].addr, h.addr, 8)
 
-  result = wyhash(0, bufAll).uint32
+  result = bufAll.wyhash(0).uint32
 
 proc main =
   # The below test vectors are from running the upstream `test_vector.cpp` [1].
@@ -68,7 +68,7 @@ proc main =
     ]
 
     for (seed, expected, input) in vectors:
-      doAssert wyhash(seed, toOpenArrayByte(input, 0, input.high)) == expected
+      doAssert toOpenArrayByte(input, 0, input.high).wyhash(seed) == expected
 
   test "smhasher":
     doAssert smhasherWyhash() == 0xbd5e840c'u32
