@@ -3,7 +3,11 @@
 # This Nim code is ported from the Zig stdlib implementation [2], which is
 # competitive with the C reference implementation.
 #
-# The Zig implementation has the following license [3]:
+# For now, an implementation of iterative hashing is omitted - it was
+# deliberately removed from the C reference implementation. See the
+# upstream issue [3].
+#
+# The Zig implementation has the following license [4]:
 #
 #   The MIT License (Expat)
 #
@@ -29,7 +33,8 @@
 #
 # [1] https://github.com/wangyi-fudan/wyhash/tree/77e50f267fbc7b8e2d09f2d455219adb70ad4749
 # [2] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/lib/std/hash/wyhash.zig
-# [3] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/LICENSE
+# [3] https://github.com/wangyi-fudan/wyhash/issues/131
+# [4] https://github.com/ziglang/zig/blob/410be6995e4f0e7b41174f7c0bb4bf828b758871/LICENSE
 from std/private/dragonbox import mul128
 
 const secret = [
@@ -48,8 +53,6 @@ type
     b: uint64
     state: array[3, uint64]
     totalLen: Usize
-    buf: array[48, uint8]
-    bufLen: Usize
 
 func mum(a: var uint64, b: var uint64) {.inline.} =
   let x = mul128(a, b)
@@ -103,7 +106,6 @@ func final2(self: var Wyhash): uint64 {.inline.} =
 
 func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
   assert input.len <= 16
-
   if (input.len >= 4):
     let last = input.len - 4
     let quarter = (input.len shr 3) shl 2
@@ -116,21 +118,10 @@ func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
     self.a = 0
     self.b = 0
 
-func shallowCopy(self: var Wyhash): Wyhash {.inline.} =
-  ## Copies the core wyhash state but not any internal buffers.
-  Wyhash(
-    a: self.a,
-    b: self.b,
-    state: self.state,
-    totalLen: self.totalLen,
-  )
-
-func init*(T: typedesc[Wyhash], seed: uint64): T =
+func init(T: typedesc[Wyhash], seed: uint64): T =
   result = T(
     totalLen: 0,
-    bufLen: 0,
   )
-
   result.state[0] = seed xor mix(seed xor secret[0], secret[1])
   result.state[1] = result.state[0]
   result.state[2] = result.state[0]
@@ -151,58 +142,6 @@ func wyhash*(seed: uint64, input: openArray[uint8]): uint64 =
 
   self.totalLen = input.len.Usize
   result = self.final2()
-
-func update*(self: var Wyhash, input: openArray[uint8]) =
-  ## This is subtly different from other hash function update calls. Wyhash requires the last
-  ## full 48-byte block to be run through `final1` if is exactly aligned to 48-bytes.
-  self.totalLen += input.len.Usize
-
-  if (input.len <= 48 - self.bufLen.int):
-    copyMem(self.buf[self.bufLen].addr, input.addr, input.len)
-    self.bufLen += input.len.Usize
-    return
-
-  var i: Usize = 0
-
-  if (self.bufLen > 0):
-    i = 48 - self.bufLen
-    copyMem(self.buf[self.bufLen].addr, input.addr, i)
-    self.round(self.buf)
-    self.bufLen = 0
-
-  while (i + 48 < input.len.Usize):
-    self.round(toOpenArray(input, i.int, input.high))
-    i += 48
-
-  let remainingBytesLen = input.len - i.int
-  if (remainingBytesLen < 16 and i >= 48):
-    let rem = 16 - remainingBytesLen
-    copyMem(self.buf[self.buf.len - rem].addr, input[i - rem.Usize].addr, rem)
-  copyMem(self.buf[0].addr, input[i].addr, remainingBytesLen)
-  self.bufLen = remainingBytesLen.Usize
-
-func final*(self: var Wyhash): uint64 =
-  var input = self.buf[0 ..< self.bufLen]
-  var newSelf = self.shallowCopy() # Ensure idempotency.
-
-  if (self.totalLen <= 16):
-    newSelf.smallKey(input)
-  else:
-    var offset: Usize = 0
-    if (self.bufLen < 16):
-      var scratch {.noinit.}: array[16, uint8]
-      let rem = 16 - self.bufLen
-      copyMem(scratch[0].addr, self.buf[self.buf.len.Usize - rem].addr, rem)
-      copyMem(scratch[rem].addr, self.buf[0].addr, self.bufLen)
-
-      # Same as input but with additional bytes preceeding start in case of a short buffer.
-      copyMem(input.addr, scratch.addr, scratch.len)
-      offset = rem
-
-    newSelf.final0()
-    newSelf.final1(input, offset)
-
-  result = newSelf.final2()
 
 when isMainModule:
   import std/unittest
@@ -236,20 +175,3 @@ when isMainModule:
 
     test "smhasher":
       check smhasherWyhash() == 0xbd5e840c
-
-    test "iterative interface":
-      verifyIterativeWyhash()
-
-    test "iterative interface maintains last sixteen":
-      const seed = 0
-      const input = 'Z'.repeat(48) & "01234567890abcdefg"
-
-      for i in 0..16:
-        var payload = input[0 .. ^(i+1)]
-        let nonIterativeHash = wyhash(seed, payload)
-
-        var wh = Wyhash.init(seed)
-        wh.update(payload)
-        let iterativeHash = wh.final()
-
-        check nonIterativeHash == iterativeHash
