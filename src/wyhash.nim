@@ -52,7 +52,7 @@ type
 func mum(a: var uint64, b: var uint64) {.inline.} =
   let x = a.uint128 *% b
   a = @truncate(x).uint64
-  b = @truncate(x >> 64).uint64
+  b = @truncate(x shr 64).uint64
 
 func mix(a: uint64, b: uint64): uint64 {.inline.} =
   var a = a
@@ -101,11 +101,11 @@ func smallKey(self: var Wyhash, input: openArray[uint8]) {.inline.} =
 
   if (input.len >= 4):
     let last = input.len - 4
-    let quarter = (input.len >> 3) << 2
-    self.a = (read(4, input[0..^1]) << 32) | read(4, input[quarter..^1])
-    self.b = (read(4, input[last..^1]) << 32) | read(4, input[last - quarter .. ^1])
+    let quarter = (input.len shr 3) shl 2
+    self.a = (read(4, input[0..^1]) shl 32) or read(4, input[quarter..^1])
+    self.b = (read(4, input[last..^1]) shl 32) or read(4, input[last - quarter .. ^1])
   elif (input.len > 0):
-    self.a = (input[0].uint64 << 16) | (input[input.len >> 1].uint64 << 8) | input[input.len - 1]
+    self.a = (input[0].uint64 shl 16) or (input[input.len shr 1].uint64 shl 8) or input[input.len - 1]
     self.b = 0
   else:
     self.a = 0
