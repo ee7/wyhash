@@ -45,7 +45,7 @@ const secret = [
 ]
 
 type
-  Wyhash* = object
+  Wyhash = object
     a: uint64
     b: uint64
     state: array[3, uint64]
