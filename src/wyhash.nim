@@ -70,10 +70,15 @@ func read8(data: openArray[byte], start: int): uint64 {.noinit.} =
   copyMem(result.addr, data[start].addr, 8)
 
 func round(self: var Wyhash, input: openArray[byte]) =
-  for i in 0..2:
-    let a = input.read8(8 * 2 * i)
-    let b = input.read8(8 * (2 * i + 1))
-    self.state[i] = mix(a xor secret[i + 1], b xor self.state[i])
+  var a = input.read8(0)
+  var b = input.read8(8)
+  self.state[0] = mix(a xor secret[1], b xor self.state[0])
+  a = input.read8(16)
+  b = input.read8(24)
+  self.state[1] = mix(a xor secret[2], b xor self.state[1])
+  a = input.read8(32)
+  b = input.read8(40)
+  self.state[2] = mix(a xor secret[3], b xor self.state[2])
 
 func final0(self: var Wyhash) =
   self.state[0] = self.state[0] xor self.state[1] xor self.state[2]
