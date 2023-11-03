@@ -10,3 +10,12 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 2.0.0"
+
+task test, "Run tests":
+  for backend in ["c", "cpp", "js"]:
+    for def in ["", "-d:release"]:
+      var cmd = "nim r --backend:" & backend & " "
+      if def.len > 0:
+        cmd.add def & " "
+      cmd.add "./tests/test_wyhash.nim"
+      exec cmd
